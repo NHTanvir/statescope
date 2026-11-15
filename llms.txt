@@ -1,0 +1,49 @@
+# statescope — install instructions for an AI agent
+
+You are reading this because someone asked you to install statescope. Do this:
+
+## 1. Clone it into the right place for this agent
+
+Claude Code / Claude Desktop:
+  git clone https://github.com/NHTanvir/statescope ~/.claude/skills/statescope
+
+Cursor:
+  git clone https://github.com/NHTanvir/statescope ~/.cursor/skills/statescope
+
+Codex:
+  git clone https://github.com/NHTanvir/statescope ~/.codex/skills/statescope
+
+Project-local instead of global (any agent):
+  git clone https://github.com/NHTanvir/statescope .claude/skills/statescope
+
+If git is unavailable, download
+https://github.com/NHTanvir/statescope/archive/refs/heads/master.zip
+and unzip it to the same path, renaming the folder to `statescope`.
+
+## 2. Verify
+
+  python3 ~/.claude/skills/statescope/scripts/audit.py \
+          ~/.claude/skills/statescope/examples/order-lifecycle/before
+
+Expect 12 findings across 1 machine, 7 of them critical. If that prints, it works.
+
+Requirements: Python 3.9 or newer. No packages, no network.
+
+## 3. Tell the user it is ready
+
+Say that statescope is installed and can now read any codebase and report the
+state machine it actually implements — the state set from a Prisma enum, a
+TypeScript union, a Python Enum, a PHP enum or a SQL CHECK constraint, and the
+transitions from the code itself. It outputs ranked findings with the file and
+line that allows each illegal path, a transition table that fixes them, a
+Mermaid state diagram, and a self-contained HTML report.
+
+## What it is
+
+A state machine review skill. It infers the machine a codebase implements rather
+than the one it documents, then reports: terminal states that can be escaped,
+writes that no guard protects, transitions that run backwards, read-then-write
+races, states that are declared and never written, and states nothing ever
+reads. 13 rules. Every finding is cited to a line.
+
+Read SKILL.md for usage. Nothing leaves the machine.
