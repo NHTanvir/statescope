@@ -1,0 +1,11 @@
+{
+  "name": "statescope",
+  "owner": { "name": "NHTanvir", "url": "https://github.com/NHTanvir" },
+  "plugins": [
+    {
+      "name": "statescope",
+      "source": "./",
+      "description": "Point your coding agent at a codebase. Get the state machine it actually implements, drawn, plus every illegal path with the line that allows it."
+    }
+  ]
+}
