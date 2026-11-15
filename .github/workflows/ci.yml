@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Confirm there are no dependencies
+        run: |
+          test ! -f requirements.txt
+          test ! -f pyproject.toml
+          echo "no dependency manifests - stdlib only"
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Audit the example codebases
+        run: |
+          python3 scripts/audit.py examples/order-lifecycle/before --no-fix
+          python3 scripts/audit.py examples/order-lifecycle/after --strict
+
+      - name: Render both outputs
+        run: |
+          python3 scripts/render.py examples/order-lifecycle/before --mermaid
+          python3 scripts/render.py examples/order-lifecycle/before --out=/tmp/report.html
+          test -s /tmp/report.html
+
+      - name: The corrected example must audit clean
+        run: |
+          count=$(python3 scripts/audit.py examples/order-lifecycle/after --json \
+                  | python3 -c "import json,sys; print(sum(json.load(sys.stdin)['counts'].values()))")
+          echo "after findings: $count"
+          test "$count" = "0"
+
+      - name: The broken example must stay broken
+        run: |
+          crit=$(python3 scripts/audit.py examples/order-lifecycle/before --json \
+                 | python3 -c "import json,sys; print(json.load(sys.stdin)['counts'].get('critical',0))")
+          echo "before criticals: $crit"
+          test "$crit" -ge 5

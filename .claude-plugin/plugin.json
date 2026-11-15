@@ -1,0 +1,11 @@
+{
+  "name": "statescope",
+  "version": "0.1.0",
+  "description": "Infer the state machine a codebase actually implements, draw it, and list every illegal path with the line that allows it.",
+  "author": { "name": "NHTanvir", "url": "https://github.com/NHTanvir" },
+  "homepage": "https://github.com/NHTanvir/statescope",
+  "repository": "https://github.com/NHTanvir/statescope",
+  "license": "MIT",
+  "keywords": ["state-machine", "lifecycle", "statechart", "audit", "mermaid", "prisma", "typescript", "python", "php", "workflow"],
+  "skills": ["./SKILL.md"]
+}
