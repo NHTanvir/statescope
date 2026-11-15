@@ -256,9 +256,12 @@ It is also honest about its own limits:
 
 ## Related
 
-[schemascope](https://github.com/NHTanvir/schemascope) audits the schema that
-declares the enum — missing indexes, wrong types, `status` as free text with no
-constraint at all. It ends where this one begins.
+- **[schemascope](https://github.com/NHTanvir/schemascope)** audits the schema
+  that declares the enum — missing indexes, wrong types, `status` as free text
+  with no constraint at all. It ends where this one begins.
+- **[gatescope](https://github.com/NHTanvir/gatescope)** asks the same kind of
+  question about access rather than state: every route resolved to the guards
+  that actually protect it, as a route-by-role matrix.
 
 ## Contributing
 
