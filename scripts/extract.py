@@ -445,6 +445,42 @@ def _in_predicate(lines: list, idx: int, line: str, pos: int) -> bool:
     return False
 
 
+_NOT_A_SIGNATURE = {"if", "elif", "while", "for", "switch", "catch", "with", "return", "and", "or", "not"}
+
+
+def _in_signature(line: str, pos: int) -> bool:
+    """True when `pos` is inside the parameter list of a function or method.
+
+    `function list(status = 'PAID')` declares a default; it is not a write of
+    paid. A parenthesis group counts as a parameter list when it is followed by
+    a body (`{`, `:` or `=>`) and is not the condition of an `if` or a loop.
+    """
+    for m in re.finditer(r"\(", line):
+        start = m.start()
+        if start >= pos:
+            break
+        depth = 0
+        end = None
+        for j in range(start, len(line)):
+            if line[j] == "(":
+                depth += 1
+            elif line[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    end = j
+                    break
+        if end is None or not (start < pos < end):
+            continue
+        word = re.search(r"([A-Za-z_$][\w$]*)\s*$", line[:start])
+        if word and word.group(1) in _NOT_A_SIGNATURE:
+            continue
+        if re.match(r"\s*(?::\s*[\w<>\[\]|.,? ]+?)?\s*(?:=>|\{|:\s*$)", line[end + 1:]) or re.match(
+            r"\s*->", line[end + 1:]
+        ):
+            return True
+    return False
+
+
 def _write_patterns(literal: str, member_refs: list) -> list:
     """Regexes that mean 'this line puts the state into a field'."""
     lit = re.escape(literal)
@@ -585,6 +621,8 @@ def scan(files: list, decl: dict) -> None:
                         if not _field_ok(key, field):
                             continue
                         pos = m.start(1) if m.groups() else m.start()
+                        if _in_signature(line, pos):
+                            continue
                         if _in_predicate(lines, idx, line, pos):
                             query_hit = query_hit or key
                         elif write_hit is None:
