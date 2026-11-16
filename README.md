@@ -72,7 +72,7 @@ stateDiagram-v2
 The same model behind one transition table drops to **0 findings** — the full
 before/after is in [`examples/order-lifecycle/`](examples/order-lifecycle).
 
-![license](https://img.shields.io/badge/license-MIT-blue) ![python](https://img.shields.io/badge/python-3.9%2B-blue) ![deps](https://img.shields.io/badge/dependencies-none-success) ![tests](https://img.shields.io/badge/tests-75%20passing-success)
+![license](https://img.shields.io/badge/license-MIT-blue) ![python](https://img.shields.io/badge/python-3.9%2B-blue) ![deps](https://img.shields.io/badge/dependencies-none-success) ![tests](https://img.shields.io/badge/tests-76%20passing-success)
 
 ---
 
