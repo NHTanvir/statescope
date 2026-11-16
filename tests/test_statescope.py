@@ -334,6 +334,74 @@ class TestFlow(Base):
                  "o.ts": "function cancel(o) { o.status = 'CANCELLED'; }\n"}
         self.assertIn(("*", "cancelled", "unguarded"), self.edges(files))
 
+    WRITE_PAID = "await prisma.order.update({ where: { id: o.id }, data: { status: 'PAID' } });"
+
+    def ts_fn(self, body: str) -> dict:
+        return {"schema.prisma": self.PRISMA_ORDER,
+                "o.ts": "export async function f(o: any) {\n" + body + "}\n"}
+
+    def test_a_closed_sibling_block_does_not_guard_a_later_write(self):
+        files = self.ts_fn(
+            "  if (o.status === 'CANCELLED') {\n    log('c');\n  }\n"
+            "  if (o.status === 'PENDING') {\n    " + self.WRITE_PAID + "\n  }\n")
+        self.assertEqual(self.edges(files), [("pending", "paid", "guarded")])
+        # and so no terminal-state escape is invented from the sibling
+        self.assertNotIn("terminal_state_escape", self.rules(files))
+
+    def test_the_else_branch_is_not_guarded_by_the_if(self):
+        files = self.ts_fn(
+            "  if (o.status === 'CANCELLED') {\n    return;\n  } else {\n    "
+            + self.WRITE_PAID + "\n  }\n")
+        self.assertNotIn(("cancelled", "paid", "guarded"), self.edges(files))
+
+    def test_a_write_nested_inside_the_guard_is_still_guarded(self):
+        files = self.ts_fn(
+            "  if (o.status === 'PENDING') {\n    if (ok()) {\n      "
+            + self.WRITE_PAID + "\n    }\n  }\n")
+        self.assertEqual(self.edges(files), [("pending", "paid", "guarded")])
+
+    def test_a_wrapped_condition_still_guards_its_block(self):
+        files = self.ts_fn(
+            "  if (\n    ready() &&\n    o.status === 'PENDING'\n  ) {\n    "
+            + self.WRITE_PAID + "\n  }\n")
+        self.assertEqual(self.edges(files), [("pending", "paid", "guarded")])
+
+    def test_braces_on_their_own_line_still_guard(self):
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts":
+                 "export async function f(o: any)\n{\n  if (o.status === 'PENDING')\n  {\n    "
+                 + self.WRITE_PAID + "\n  }\n}\n"}
+        self.assertEqual(self.edges(files), [("pending", "paid", "guarded")])
+
+    def test_a_negative_early_exit_still_dominates_what_follows(self):
+        files = self.ts_fn(
+            "  if (o.status !== 'PENDING') {\n    throw new Error('no');\n  }\n  log();\n  "
+            + self.WRITE_PAID + "\n")
+        self.assertEqual(self.edges(files), [("pending", "paid", "guarded")])
+
+    def test_one_line_if_guards_its_own_statement(self):
+        files = self.ts_fn("  if (o.status === 'PENDING') " + self.WRITE_PAID + "\n")
+        self.assertEqual(self.edges(files), [("pending", "paid", "guarded")])
+
+    def test_switch_arms_do_not_guard_each_other(self):
+        files = self.ts_fn(
+            "  switch (o.status) {\n    case 'CANCELLED':\n      log();\n      break;\n"
+            "    case 'PENDING':\n      " + self.WRITE_PAID + "\n      break;\n  }\n")
+        self.assertEqual(self.edges(files), [("pending", "paid", "guarded")])
+
+    def test_python_elif_and_closed_sibling(self):
+        models = ("from enum import Enum\nclass TicketStatus(str, Enum):\n"
+                  "    OPEN = 'open'\n    IN_PROGRESS = 'in_progress'\n    CLOSED = 'closed'\n")
+        elif_files = {"models.py": models, "s.py":
+            "def f(t):\n    if t.status == TicketStatus.CLOSED:\n        return\n"
+            "    elif t.status == TicketStatus.OPEN:\n"
+            "        t.status = TicketStatus.IN_PROGRESS\n        t.save()\n"}
+        self.assertEqual(self.edges(elif_files), [("open", "in_progress", "guarded")])
+        sibling_files = {"models.py": models, "s.py":
+            "def f(t):\n    if t.status == TicketStatus.CLOSED:\n        log()\n"
+            "    if t.status == TicketStatus.OPEN:\n"
+            "        t.status = TicketStatus.IN_PROGRESS\n        t.save()\n"}
+        self.assertEqual(self.edges(sibling_files), [("open", "in_progress", "guarded")])
+
     def test_declared_table_is_read_as_the_machine(self):
         m = self.one({
             "schema.prisma": "enum S {\n  PENDING\n  PAID\n  SHIPPED\n}\n"

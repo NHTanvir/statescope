@@ -611,6 +611,7 @@ def scan(files: list, decl: dict) -> None:
                         "state": state["name"], "file": rel, "line": idx + 1,
                         "snippet": line.strip()[:160],
                         "predicate": _predicate(line, field),
+                        "encloses": _positive_read(line),
                     })
                     continue
 
@@ -644,6 +645,7 @@ def scan(files: list, decl: dict) -> None:
                         "state": state["name"], "file": rel, "line": idx + 1,
                         "snippet": line.strip()[:160],
                         "predicate": True,
+                        "encloses": False,
                     })
 
         for idx, raw in enumerate(lines):
@@ -740,6 +742,35 @@ def validated(write: dict, files_by_rel: dict, window: int = 30) -> bool:
     return False
 
 
+def _positive_read(line: str) -> bool:
+    """True for `=== 'x'`, `== X` and `case 'x':`, which guard only the block they open.
+
+    A negative comparison (`!==`, `not in`) is usually an early return, and
+    dominates everything after it. A where / filter call guards its own
+    statement. Neither needs the write to be nested inside it.
+    """
+    if re.search(r"!==|!=|\bnot\b|!\s*in_array|!\s*\w+\s*\(", line):
+        return False
+    if re.search(r"\b(?:where\w*|filter\w*|find\w*)\s*\(", line, re.I):
+        return False
+    return True
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip())
+
+
+def _statement_indent(lines: list, idx: int) -> int:
+    """Indent of the statement that contains line `idx`, across a wrapped condition."""
+    start, bal = idx, 0
+    for k in range(idx - 1, max(-1, idx - 6), -1):
+        text = strip_comment(lines[k])
+        bal += text.count(")") - text.count("(")
+        if bal < 0:
+            start, bal = k, 0
+    return _indent(lines[start])
+
+
 def guards_for(write: dict, files_by_rel: dict, reads: list, window: int = 30) -> list:
     """States read in a comparison that dominates this write, with evidence."""
     lines = files_by_rel.get(write["file"]) or []
@@ -764,6 +795,20 @@ def guards_for(write: dict, files_by_rel: dict, reads: list, window: int = 30) -
                 break
         if crossed:
             continue
+        if r.get("encloses") and rline != wline:
+            # a positive comparison guards the block it opens: every line between
+            # it and the write must be nested deeper than the statement itself
+            base = _statement_indent(lines, rline)
+            closed = False
+            for i in range(rline + 1, wline):
+                li = lines[i]
+                if not li.strip() or li.strip() in {"{", "(", ")", ") {", "):"}:
+                    continue
+                if _indent(li) <= base:
+                    closed = True
+                    break
+            if closed:
+                continue
         key = (r["state"], r["line"])
         if key in seen:
             continue
