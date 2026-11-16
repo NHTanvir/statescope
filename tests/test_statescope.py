@@ -603,6 +603,41 @@ class TestRules(Base):
             "await db.o.update({ where: { id }, data: { status: 'shipped' } });\n"
         )))
 
+    LOG_WRITE = "await prisma.order.update({ where: { id: o.id }, data: { status: 'SHIPPED' } });"
+    LOG_SCHEMA = ("enum S {\n  PAID\n  SHIPPED\n}\nmodel O {\n  status S\n}\n")
+
+    def log_rules(self, body: str) -> set:
+        return self.rules({"schema.prisma": self.LOG_SCHEMA, "o.ts":
+                           "export async function f(o: any) {\n  if (o.status === 'PAID') {\n"
+                           + body + "  }\n}\n"})
+
+    def test_an_event_recorded_in_the_next_statement_counts_as_a_log(self):
+        for name, body in {
+            "event table": f"    {self.LOG_WRITE}\n    await prisma.orderEvent.create({{ data: {{ orderId: o.id }} }});\n",
+            "history before": f"    await history.add(o.id, 'ship');\n    {self.LOG_WRITE}\n",
+            "emit": f"    {self.LOG_WRITE}\n    bus.emit('order.shipped', o.id);\n",
+            "logger": f"    {self.LOG_WRITE}\n    logger.info('shipped', o.id);\n",
+            "audit table": f"    {self.LOG_WRITE}\n    await auditLog.create({{ data: {{ id: o.id }} }});\n",
+        }.items():
+            with self.subTest(name):
+                self.assertNotIn("missing_transition_log", self.log_rules(body))
+
+    def test_debug_output_and_event_variables_are_not_a_log(self):
+        for name, body in {
+            "console.log": f"    {self.LOG_WRITE}\n    console.log('shipped', o.id);\n",
+            "an event.type read": f"    if (event.type === 'x') {{\n      {self.LOG_WRITE}\n    }}\n",
+            "nothing": f"    {self.LOG_WRITE}\n",
+        }.items():
+            with self.subTest(name):
+                self.assertIn("missing_transition_log", self.log_rules(body))
+
+    def test_a_log_in_another_function_is_not_a_log_for_this_write(self):
+        files = {"schema.prisma": self.LOG_SCHEMA, "o.ts":
+                 "export async function f(o: any) {\n  if (o.status === 'PAID') {\n    "
+                 + self.LOG_WRITE + "\n  }\n}\n\n"
+                 "export async function record(x: any) {\n  await auditLog.create({ data: x });\n}\n"}
+        self.assertIn("missing_transition_log", self.rules(files))
+
     def test_logged_transition_is_not_reported(self):
         self.assertNotIn("missing_transition_log", self.rules(codebase(
             "await db.o.update({ where: { id },"
