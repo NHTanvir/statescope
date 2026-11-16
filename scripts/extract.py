@@ -389,6 +389,62 @@ def _field_ok(key: str, field) -> bool:
     return bool(FIELD_HINT.search(key))
 
 
+# --------------------------------------------------------------------------
+# context: is this occurrence selecting rows, or changing them?
+# --------------------------------------------------------------------------
+
+_PRED_BRACE = re.compile(
+    r"\b(?:where|filter|having|conditions?|query|match|find\w*|count\w*|exists)\s*[:(=]?\s*$", re.I
+)
+_PRED_PAREN = re.compile(
+    r"\b(?:filter|filter_by|exclude|where|get|get_or_none|having|Q|find\w*|count|exists)\s*$", re.I
+)
+_WRITE_CONTAINER = re.compile(
+    r"\b(?:data|set|\$set|values|defaults|create\w*|update\w*|insert\w*|save|upsert|"
+    r"attributes|fill)\s*[:(=]?\s*$", re.I
+)
+
+
+def _in_predicate(lines: list, idx: int, line: str, pos: int) -> bool:
+    """True when the text at `pos` sits inside a where / filter clause.
+
+    `where: { id, status: 'PAID' }` selects rows in the state `paid`; it does not
+    put anything into the column. Reading it as a write reports the race-free
+    form of an update as an unguarded write of the state it was protecting.
+    """
+    before_line = line[:pos]
+    # raw SQL on one line: ... WHERE id = 1 AND status = 'paid'
+    w = list(re.finditer(r"\bwhere\b(?!\s*[:(])", before_line, re.I))
+    if w and not re.search(r"\bset\b", before_line[w[-1].end():], re.I):
+        return True
+
+    text = "\n".join(strip_comment(l) for l in lines[max(0, idx - 12):idx]) + "\n" + before_line
+    closers = {")": "(", "}": "{", "]": "["}
+    depth = {"(": 0, "{": 0, "[": 0}
+    for i in range(len(text) - 1, -1, -1):
+        ch = text[i]
+        if ch in closers:
+            depth[closers[ch]] += 1
+        elif ch in depth:
+            if depth[ch] > 0:
+                depth[ch] -= 1
+                continue
+            head = text[:i].rstrip()
+            if ch == "{" or ch == "[":
+                head_tail = head[-40:]
+                if _WRITE_CONTAINER.search(head_tail):
+                    return False
+                if _PRED_BRACE.search(head_tail):
+                    return True
+            elif ch == "(":
+                head_tail = head[-40:]
+                if _WRITE_CONTAINER.search(head_tail):
+                    return False
+                if _PRED_PAREN.search(head_tail):
+                    return True
+    return False
+
+
 def _write_patterns(literal: str, member_refs: list) -> list:
     """Regexes that mean 'this line puts the state into a field'."""
     lit = re.escape(literal)
@@ -522,21 +578,35 @@ def scan(files: list, decl: dict) -> None:
                     })
                     continue
 
+                write_hit, query_hit = None, None
                 for wp in wpats:
-                    m = wp.search(line)
-                    if not m:
-                        continue
-                    key = m.group(1) if m.groups() else None
-                    if not _field_ok(key, field):
-                        continue
+                    for m in wp.finditer(line):
+                        key = m.group(1) if m.groups() else None
+                        if not _field_ok(key, field):
+                            continue
+                        pos = m.start(1) if m.groups() else m.start()
+                        if _in_predicate(lines, idx, line, pos):
+                            query_hit = query_hit or key
+                        elif write_hit is None:
+                            write_hit = key
+                    if write_hit is not None:
+                        break
+                if write_hit is not None:
                     writes.append({
                         "state": state["name"], "file": rel, "line": idx + 1,
                         "snippet": line.strip()[:160],
-                        "field": key,
+                        "field": write_hit,
                         "creates": bool(re.search(r"\b(create|insert|new|register|signup)\b", line, re.I)),
                         "predicate": _predicate(line, field),
                     })
-                    break
+                elif query_hit is not None:
+                    # selecting rows BY a state is a read of it, and the strongest
+                    # kind: the database does the comparing
+                    reads.append({
+                        "state": state["name"], "file": rel, "line": idx + 1,
+                        "snippet": line.strip()[:160],
+                        "predicate": True,
+                    })
 
         for idx, raw in enumerate(lines):
             m = HELPER_NAME.search(raw)
