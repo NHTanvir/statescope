@@ -23,7 +23,7 @@ SKIP_DIRS = {
     "target", ".idea", ".vscode", "bower_components", ".svelte-kit", "public",
 }
 CODE_EXT = {
-    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".php", ".rb", ".go",
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".php",
 }
 DECL_EXT = CODE_EXT | {".prisma", ".sql"}
 MAX_BYTES = 1_500_000
