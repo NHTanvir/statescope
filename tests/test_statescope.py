@@ -402,6 +402,38 @@ class TestFlow(Base):
             "        t.status = TicketStatus.IN_PROGRESS\n        t.save()\n"}
         self.assertEqual(self.edges(sibling_files), [("open", "in_progress", "guarded")])
 
+    JOB_STATE = "type JobState = 'queued' | 'running' | 'done' | 'failed';\n"
+
+    def test_a_private_js_field_is_not_a_comment(self):
+        files = {"j.ts": self.JOB_STATE +
+                 "class Job {\n  #state: JobState = 'queued';\n  start() {\n"
+                 "    if (this.#state === 'queued') {\n      this.#state = 'running';\n    }\n  }\n}\n"}
+        self.assertIn(("queued", "running", "guarded"), self.edges(files))
+
+    def test_a_decrement_is_not_a_comment(self):
+        for dec in ("j.retries--;", "--j.retries;"):
+            with self.subTest(dec):
+                files = {"j.ts": self.JOB_STATE + "function f(j: any) {\n"
+                         "  if (j.state === 'running') {\n    " + dec + " j.state = 'failed';\n  }\n}\n"}
+                self.assertIn(("running", "failed", "guarded"), self.edges(files))
+
+    def test_a_double_slash_inside_a_template_literal_is_not_a_comment(self):
+        files = {"j.ts": self.JOB_STATE + "function f(j: any) {\n  if (j.state === 'running') {\n"
+                 "    log(`https://x.com/${j.id}`); j.state = 'failed';\n  }\n}\n"}
+        self.assertIn(("running", "failed", "guarded"), self.edges(files))
+
+    def test_real_comments_are_still_comments(self):
+        for name, files in {
+            "slashes": {"j.ts": self.JOB_STATE + "function f(j: any) {\n  // j.state = 'running';\n}\n"},
+            "hash": {"m.py": "from enum import Enum\nclass JobState(str, Enum):\n"
+                             "    QUEUED = 'queued'\n    RUNNING = 'running'\n",
+                     "s.py": "def f(j):\n    # j.state = JobState.RUNNING\n    pass\n"},
+            "sql dashes": {"j.ts": self.JOB_STATE + "function f(j: any) {\n"
+                           "  const q = `x`; -- j.state = 'running'\n}\n"},
+        }.items():
+            with self.subTest(name):
+                self.assertEqual(self.edges(files), [])
+
     def test_declared_table_is_read_as_the_machine(self):
         m = self.one({
             "schema.prisma": "enum S {\n  PENDING\n  PAID\n  SHIPPED\n}\n"

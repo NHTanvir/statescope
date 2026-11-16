@@ -110,13 +110,31 @@ def walk(root: str) -> list:
     return out
 
 
+def _comment_at(line: str, marker: str, idx: int) -> bool:
+    """Is the `marker` found at `idx` really the start of a comment?"""
+    if marker == "#":
+        # this.#state and obj?.#state are private members, not comments
+        return not (idx > 0 and line[idx - 1] == ".")
+    if marker == "--":
+        # SQL style: `-- note`. `retries--;` and `--retries` are decrements.
+        starts_word = idx == 0 or line[idx - 1].isspace()
+        ends_word = idx + 2 >= len(line) or line[idx + 2].isspace()
+        return starts_word and ends_word
+    return True
+
+
 def strip_comment(line: str) -> str:
     """Remove the obvious trailing comment so comments never become evidence."""
     for marker in ("//", "#", "--"):
         idx = line.find(marker)
         while idx != -1:
             before = line[:idx]
-            if before.count("'") % 2 == 0 and before.count('"') % 2 == 0:
+            if (
+                before.count("'") % 2 == 0
+                and before.count('"') % 2 == 0
+                and before.count("`") % 2 == 0
+                and _comment_at(line, marker, idx)
+            ):
                 return before
             idx = line.find(marker, idx + 1)
     return line
