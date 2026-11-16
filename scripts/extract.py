@@ -595,6 +595,51 @@ def free_writes(files: list, field: str, states: set, enum_name: str) -> list:
     return out
 
 
+# A record of the transition, kept somewhere other than the state column itself.
+LOG_HINT = re.compile(
+    r"(_at\b|\bat:|changed_?at\b|moved_?at\b|\blog\b|audit|history|event|track|emit|record|journal|"
+    r"transition_log|statusHistory|status_history)", re.I
+)
+# What a neighbouring statement has to look like to count as recording the move.
+# The bare word `event` is not enough: a webhook handler is full of `event.type`.
+NEARBY_LOG = re.compile(
+    r"\b\w*(?:event|history|audit|journal|ledger|activity|log)s?\w*\s*\.\s*(?:objects\s*\.\s*)?"
+    r"(?:create|insert|add|push|save|append|write|record|log|info|warn|error)\w*\s*\(|"
+    r"\b(?:emit|record|track|audit|publish|dispatch|notify|log)\w*\s*\(|"
+    r"\b\w*(?:Event|History|Audit|Log)\w*::create|->(?:create|insert)\s*\(\s*\[?[^)]*\b(?:event|history|audit)|"
+    r"\bstatus_?history\b|\btransition_?log\b|\bchanged_?at\b|\bmoved_?at\b",
+    re.I,
+)
+
+
+def _logged_near(lines: list, idx: int, reach: int = 8) -> bool:
+    """True when the same function records the transition within a few lines.
+
+    Looking only at the line that writes the state misses the usual pattern:
+    the event is recorded as the next statement.
+    """
+    base = len(lines[idx]) - len(lines[idx].lstrip())
+
+    def hint(text: str) -> bool:
+        text = re.sub(r"\bconsole\s*\.\s*\w+\s*\([^)]*\)|\bprint\s*\([^)]*\)", " ", strip_comment(text))
+        return bool(NEARBY_LOG.search(text))
+
+    if LOG_HINT.search(strip_comment(lines[idx])):
+        return True
+    for step in (-1, 1):
+        j = idx + step
+        for _ in range(reach):
+            if not (0 <= j < len(lines)):
+                break
+            text = lines[j]
+            if text.strip() and BOUNDARY.match(text) and (len(text) - len(text.lstrip())) < base:
+                break
+            if hint(text):
+                return True
+            j += step
+    return False
+
+
 def scan(files: list, decl: dict) -> None:
     """Fill decl with writes, reads and helpers."""
     field = decl.get("field")
@@ -855,6 +900,8 @@ def build(root: str) -> dict:
 
     for decl in declarations(files):
         scan(files, decl)
+        for w in decl["writes"]:
+            w["logged"] = _logged_near(files_by_rel.get(w["file"]) or [], w["line"] - 1)
         name_hint = bool(FIELD_HINT.search(decl["name"])) or (
             decl.get("field") and bool(FIELD_HINT.search(decl["field"]))
         )
