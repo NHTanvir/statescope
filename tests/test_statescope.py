@@ -164,6 +164,17 @@ GUARDED = {
 }
 
 
+class TestSupportedFiles(Base):
+    def test_only_the_documented_source_files_are_searched_for_writes(self):
+        schema = "enum S {\n  PENDING\n  PAID\n}\nmodel O {\n  status S\n}\n"
+        for ext in (".rb", ".go"):
+            with self.subTest(ext):
+                doc = self.build({"schema.prisma": schema, "svc" + ext: "o.status = 'paid'\n"})
+                self.assertEqual(
+                    [w for m in doc["machines"] for w in m["writes"]], []
+                )
+
+
 class TestEnumLayouts(Base):
     TS_USE = (
         "export async function start(j: any) {\n"
