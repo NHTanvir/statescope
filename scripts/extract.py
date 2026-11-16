@@ -195,6 +195,19 @@ def _py_block(lines: list, start: int) -> tuple:
     return body, end
 
 
+def _enum_inner(body: list) -> str:
+    """The text between an enum's braces, whatever the line layout.
+
+    Members used to be read one per line, anchored at the line start, so an enum
+    written on one line (`enum S { A = 'a', B = 'b' }`) declared nothing.
+    """
+    text = "\n".join(strip_comment(bl) for _, bl in body)
+    lo, hi = text.find("{"), text.rfind("}")
+    if lo == -1:
+        return ""
+    return text[lo + 1 : hi if hi > lo else len(text)]
+
+
 def declarations(files: list) -> list:
     """Every state set found, before lifecycle filtering."""
     found = []
@@ -267,15 +280,15 @@ def declarations(files: list) -> list:
                 start = text[: m.start(1)].count("\n")
                 body, _ = _block(lines, start)
                 vals, keys = [], []
-                for _, bl in body:
-                    em = re.match(r"\s*(\w+)\s*=\s*['\"]([^'\"]+)['\"]", bl)
-                    if em:
-                        keys.append(em.group(1))
-                        vals.append(em.group(2))
-                    else:
-                        km = re.match(r"\s*(\w+)\s*,?\s*$", strip_comment(bl))
-                        if km and km.group(1) not in {"export", "const", "enum"}:
-                            keys.append(km.group(1))
+                inner = _enum_inner(body)
+                for part in inner.split(","):
+                    em = re.match(r"\s*(\w+)\s*(?:=\s*(.+?))?\s*$", part, re.S)
+                    if not em or em.group(1) in {"export", "const", "enum"}:
+                        continue
+                    keys.append(em.group(1))
+                    sv = re.match(r"['\"]([^'\"]+)['\"]$", (em.group(2) or "").strip())
+                    if sv:
+                        vals.append(sv.group(1))
                 d = add("ts_enum", m.group(1), vals or keys, rel, start)
                 if d:
                     d["decl_lines"] = {i for i, _ in body}
@@ -323,15 +336,15 @@ def declarations(files: list) -> list:
                 start = text[: m.start(1)].count("\n")
                 body, _ = _block(lines, start)
                 vals, keys = [], []
-                for _, bl in body:
-                    em = re.match(r"\s*case\s+(\w+)\s*=\s*['\"]([^'\"]+)['\"]", bl)
-                    if em:
-                        keys.append(em.group(1))
+                for part in _enum_inner(body).split(";"):
+                    em = re.match(
+                        r"\s*case\s+(\w+)\s*(?:=\s*['\"]([^'\"]+)['\"])?\s*$", part
+                    )
+                    if not em:
+                        continue
+                    keys.append(em.group(1))
+                    if em.group(2) is not None:
                         vals.append(em.group(2))
-                    else:
-                        km = re.match(r"\s*case\s+(\w+)\s*;", bl)
-                        if km:
-                            keys.append(km.group(1))
                 d = add("php_enum", m.group(1), vals or keys, rel, start)
                 if d:
                     d["decl_lines"] = {i for i, _ in body}
