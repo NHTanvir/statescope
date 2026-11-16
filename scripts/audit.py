@@ -406,7 +406,7 @@ def rule_no_terminal(m: dict, out: list) -> None:
 def rule_missing_log(m: dict, out: list) -> None:
     if not m["writes"]:
         return
-    if any(LOG_HINT.search(w.get("snippet") or "") for w in m["writes"]):
+    if any(w.get("logged") or LOG_HINT.search(w.get("snippet") or "") for w in m["writes"]):
         return
     out.append(finding(
         "medium", "missing_transition_log", m["name"],
