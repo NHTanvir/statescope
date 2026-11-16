@@ -233,6 +233,83 @@ class TestFlow(Base):
         t = next(t for t in m["transitions"] if t["to"] == "shipped")
         self.assertTrue(t["predicate"])
 
+    PRISMA_ORDER = (
+        "enum OrderStatus {\n  PENDING\n  PAID\n  SHIPPED\n  CANCELLED\n}\n"
+        "model Order {\n  id String @id\n  status OrderStatus @default(PENDING)\n}\n"
+    )
+
+    def edges(self, files: dict) -> list:
+        doc = self.build(files)
+        return sorted(
+            (t["from"], t["to"], t["kind"]) for m in doc["machines"] for t in m["transitions"]
+        )
+
+    def test_where_clause_alone_is_the_guard_and_not_a_write(self):
+        # the race-free form on its own, with no `if` above it
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts": (
+            "export async function ship(id: string) {\n"
+            "  await prisma.order.updateMany({\n"
+            "    where: { id, status: 'PAID' },\n"
+            "    data: { status: 'SHIPPED' },\n"
+            "  });\n}\n"
+        )}
+        self.assertEqual(self.edges(files), [("paid", "shipped", "guarded")])
+        self.assertNotIn("unguarded_write", self.rules(files))
+
+    def test_where_and_data_on_one_line(self):
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts": (
+            "export async function ship(id: string) {\n"
+            "  await prisma.order.updateMany({ where: { id, status: 'PAID' },"
+            " data: { status: 'SHIPPED' } });\n}\n"
+        )}
+        self.assertEqual(self.edges(files), [("paid", "shipped", "guarded")])
+
+    def test_filtering_by_a_state_is_not_a_write(self):
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts": (
+            "export function pending() {\n"
+            "  return prisma.order.findMany({ where: { status: 'PENDING' } });\n}\n"
+        )}
+        self.assertFalse([e for e in self.edges(files) if e[0] == "*"])
+
+    def test_state_inside_a_nested_or_in_where_is_a_read(self):
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts": (
+            "export function open() {\n  return prisma.order.findMany({\n    where: {\n"
+            "      OR: [\n        { status: 'PAID' },\n        { status: 'SHIPPED' },\n      ],\n"
+            "    },\n  });\n}\n"
+        )}
+        self.assertFalse([e for e in self.edges(files) if e[0] == "*"])
+
+    def test_python_orm_filter_is_not_a_write(self):
+        files = {
+            "models.py": "from enum import Enum\nclass TicketStatus(str, Enum):\n"
+                         "    OPEN = 'open'\n    IN_PROGRESS = 'in_progress'\n    CLOSED = 'closed'\n",
+            "svc.py": "def open_tickets():\n"
+                      "    return Ticket.objects.filter(status=TicketStatus.OPEN)\n",
+        }
+        self.assertFalse([e for e in self.edges(files) if e[0] == "*"])
+
+    def test_sql_where_status_is_a_read_and_set_status_is_a_write(self):
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts": (
+            "export async function ship(id: string) {\n"
+            "  await db.query(\"UPDATE orders SET status = 'SHIPPED' "
+            "WHERE id = $1 AND status = 'PAID'\", [id]);\n}\n"
+        )}
+        self.assertEqual(self.edges(files), [("paid", "shipped", "guarded")])
+
+    def test_a_write_beside_a_where_is_still_a_write(self):
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts": (
+            "export async function cancel(id: string) {\n"
+            "  await prisma.order.update({ where: { id }, data: { status: 'CANCELLED' } });\n}\n"
+        )}
+        self.assertIn(("*", "cancelled", "unguarded"), self.edges(files))
+
+    def test_mongo_set_is_a_write(self):
+        files = {"schema.prisma": self.PRISMA_ORDER, "o.ts": (
+            "export async function cancel(id: string) {\n"
+            "  await orders.updateOne({ _id: id }, { $set: { status: 'CANCELLED' } });\n}\n"
+        )}
+        self.assertIn(("*", "cancelled", "unguarded"), self.edges(files))
+
     def test_declared_table_is_read_as_the_machine(self):
         m = self.one({
             "schema.prisma": "enum S {\n  PENDING\n  PAID\n  SHIPPED\n}\n"
