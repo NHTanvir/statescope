@@ -310,6 +310,30 @@ class TestFlow(Base):
         )}
         self.assertIn(("*", "cancelled", "unguarded"), self.edges(files))
 
+    def test_default_parameter_is_not_a_write(self):
+        for name, files in {
+            "function": {"schema.prisma": self.PRISMA_ORDER, "o.ts":
+                "export function list(status = 'PAID') {\n"
+                "  return prisma.order.findMany({ where: { status } });\n}\n"},
+            "arrow": {"schema.prisma": self.PRISMA_ORDER, "o.ts":
+                "export const list = async (status = 'PAID') => {\n  return 1;\n};\n"},
+            "method with a return type": {"schema.prisma": self.PRISMA_ORDER, "o.ts":
+                "class S {\n  async list(status = 'PAID'): Promise<void> {\n    return;\n  }\n}\n"},
+            "python": {
+                "models.py": "from enum import Enum\nclass TicketStatus(str, Enum):\n"
+                             "    OPEN = 'open'\n    CLOSED = 'closed'\n",
+                "s.py": "def list_tickets(status=TicketStatus.OPEN):\n    return []\n"},
+            "php": {"schema.prisma": self.PRISMA_ORDER, "o.php":
+                "<?php\nfunction listOrders($status = 'PAID') {\n  return 1;\n}\n"},
+        }.items():
+            with self.subTest(name):
+                self.assertFalse([e for e in self.edges(files) if e[0] == "*"])
+
+    def test_a_write_in_a_one_line_function_body_is_still_a_write(self):
+        files = {"schema.prisma": self.PRISMA_ORDER,
+                 "o.ts": "function cancel(o) { o.status = 'CANCELLED'; }\n"}
+        self.assertIn(("*", "cancelled", "unguarded"), self.edges(files))
+
     def test_declared_table_is_read_as_the_machine(self):
         m = self.one({
             "schema.prisma": "enum S {\n  PENDING\n  PAID\n  SHIPPED\n}\n"
