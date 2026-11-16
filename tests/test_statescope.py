@@ -164,6 +164,57 @@ GUARDED = {
 }
 
 
+class TestEnumLayouts(Base):
+    TS_USE = (
+        "export async function start(j: any) {\n"
+        "  if (j.state === JobState.Queued) {\n"
+        "    await db.job.update({ where: { id: j.id }, data: { state: JobState.Running } });\n"
+        "  }\n}\n"
+    )
+
+    def edges(self, files: dict) -> list:
+        doc = self.build(files)
+        return sorted(
+            (t["from"], t["to"], t["kind"]) for m in doc["machines"] for t in m["transitions"]
+        )
+
+    def test_one_line_typescript_enum(self):
+        files = {"j.ts": "enum JobState { Queued = 'queued', Running = 'running', Done = 'done' }\n"
+                 + self.TS_USE}
+        self.assertEqual(self.edges(files), [("queued", "running", "guarded")])
+
+    def test_multi_line_typescript_enum_with_comments(self):
+        files = {"j.ts": "enum JobState {\n  Queued = 'queued',\n  Running = 'running', // go\n"
+                         "  Done = 'done',\n}\n" + self.TS_USE}
+        self.assertEqual(self.edges(files), [("queued", "running", "guarded")])
+
+    def test_typescript_enum_with_bare_members(self):
+        m = self.one({"j.ts": "enum JobState {\n  Queued,\n  Running,\n  Done,\n}\n"
+                      "function f(j: any) {\n  if (j.state === 'Queued') {\n"
+                      "    j.state = 'Running';\n  }\n}\n"})
+        self.assertEqual(m["states"], ["queued", "running", "done"])
+
+    def test_one_line_php_enum(self):
+        files = {
+            "S.php": "<?php\nenum InvoiceStatus: string { case Draft = 'draft'; "
+                     "case Sent = 'sent'; case Paid = 'paid'; }\n",
+            "svc.php": "<?php\nfunction send($inv) {\n"
+                       "  if ($inv->status === InvoiceStatus::Draft->value) {\n"
+                       "    $inv->update(['status' => InvoiceStatus::Sent->value]);\n  }\n}\n",
+        }
+        self.assertEqual(self.edges(files), [("draft", "sent", "guarded")])
+
+    def test_php_enum_with_methods_only_reads_its_cases(self):
+        m = self.one({
+            "S.php": "<?php\nenum InvoiceStatus: string {\n  case Draft = 'draft';\n"
+                     "  case Sent = 'sent';\n  case Paid = 'paid';\n"
+                     "  public function label(): string {\n    return ucfirst($this->value);\n  }\n}\n",
+            "svc.php": "<?php\nfunction send($inv) {\n  if ($inv->status === 'draft') {\n"
+                       "    $inv->status = 'sent';\n  }\n}\n",
+        })
+        self.assertEqual(m["states"], ["draft", "sent", "paid"])
+
+
 class TestFlow(Base):
     def test_guard_above_write_becomes_an_edge(self):
         m = self.one(GUARDED)
