@@ -103,6 +103,26 @@ also run on their own without any agent at all.
 
 ---
 
+## Run it in CI
+
+statescope is on the GitHub Marketplace as
+[State Machine Audit (statescope)](https://github.com/marketplace/actions/state-machine-audit-statescope).
+It prints the full audit to the log, puts the findings and the Mermaid diagram
+on the run's summary page, and fails the step on any critical finding:
+
+```yaml
+- uses: actions/checkout@v4
+- uses: NHTanvir/statescope@v0.1.0
+  with:
+    path: .          # directory or file to audit
+    strict: true     # fail on any critical finding
+    summary: true    # findings and diagram in the job summary
+```
+
+It needs `python3` on the runner, which GitHub's Ubuntu and macOS images have.
+
+---
+
 ## Use it without an agent
 
 ```bash
