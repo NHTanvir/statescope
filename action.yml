@@ -1,8 +1,5 @@
 name: State Machine Audit (statescope)
-description: >-
-  Infer the state machine your code implements, draw it as a Mermaid state
-  diagram, and fail CI on invalid transitions, each cited to the line that
-  allows it. TypeScript, JavaScript, Python, PHP, Prisma and SQL.
+description: Draw the state machine your code implements as a Mermaid diagram and fail CI on invalid transitions, cited by line.
 author: NHTanvir
 branding:
   icon: git-branch
