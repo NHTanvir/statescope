@@ -112,7 +112,7 @@ on the run's summary page, and fails the step on any critical finding:
 
 ```yaml
 - uses: actions/checkout@v4
-- uses: NHTanvir/statescope@v0.1.0
+- uses: NHTanvir/statescope@v0.1.1
   with:
     path: .          # directory or file to audit
     strict: true     # fail on any critical finding
