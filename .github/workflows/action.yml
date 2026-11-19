@@ -1,0 +1,32 @@
+name: action
+
+# Runs the action from this checkout against the bundled example, so a change
+# that breaks action.yml fails here before it reaches a release.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: A machine behind one transition table passes
+        uses: ./
+        with:
+          path: examples/order-lifecycle/after
+
+      - name: A machine with critical findings fails
+        id: before
+        continue-on-error: true
+        uses: ./
+        with:
+          path: examples/order-lifecycle/before
+
+      - name: Confirm the second audit failed
+        if: steps.before.outcome != 'failure'
+        run: |
+          echo "expected the strict audit of examples/order-lifecycle/before to fail"
+          exit 1
