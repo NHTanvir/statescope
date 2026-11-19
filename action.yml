@@ -1,0 +1,54 @@
+name: State Machine Audit (statescope)
+description: >-
+  Infer the state machine your code implements, draw it as a Mermaid state
+  diagram, and fail CI on invalid transitions, each cited to the line that
+  allows it. TypeScript, JavaScript, Python, PHP, Prisma and SQL.
+author: NHTanvir
+branding:
+  icon: git-branch
+  color: red
+
+inputs:
+  path:
+    description: Directory or file to audit, relative to the workspace.
+    required: false
+    default: "."
+  strict:
+    description: Fail the step when the audit has any critical finding ("true" or "false").
+    required: false
+    default: "true"
+  summary:
+    description: Write the findings and the Mermaid diagram to the job summary ("true" or "false").
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Audit state machines
+      shell: bash
+      env:
+        STATESCOPE_PATH: ${{ inputs.path }}
+        STATESCOPE_STRICT: ${{ inputs.strict }}
+        STATESCOPE_SUMMARY: ${{ inputs.summary }}
+      run: |
+        scripts="$GITHUB_ACTION_PATH/scripts"
+
+        # The full report, with fixes, in the log.
+        python3 "$scripts/audit.py" "$STATESCOPE_PATH"
+
+        # The findings table and the diagram on the run's summary page.
+        if [ "$STATESCOPE_SUMMARY" = "true" ]; then
+          {
+            python3 "$scripts/audit.py" "$STATESCOPE_PATH" --markdown --no-fix
+            echo
+            echo '```mermaid'
+            python3 "$scripts/render.py" "$STATESCOPE_PATH" --mermaid
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        # Exit 1 on any critical finding.
+        if [ "$STATESCOPE_STRICT" = "true" ]; then
+          python3 "$scripts/audit.py" "$STATESCOPE_PATH" --strict --no-fix > /dev/null
+        fi
